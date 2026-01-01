@@ -10,7 +10,9 @@ from src.car import Car
 from src.track import Track
 from src.camera import Camera
 from src.npc_car import NPCCar
+from src.data import Database
 import math
+import time
 
 
 # Constants
@@ -62,6 +64,19 @@ class Game:
         # Race position
         self.player_position = 1
 
+        # Timing
+        self.lap_start_time = time.time()
+        self.current_lap_time = 0.0
+        self.best_lap_time = None
+        self.last_lap_time = None
+
+        # Database
+        db_path = os.path.join(self.base_path, "data", "racing_game.db")
+        self.db = Database(db_path)
+        self.player_name = "Player1"
+        self.player_id = self.db.get_or_create_player(self.player_name)
+        self._load_best_time()
+
     def _load_track(self):
         """Load or reload the track and reset car position."""
         self.track = Track(self.assets_path, self.track_index)
@@ -83,11 +98,23 @@ class Game:
         # Get world size for camera bounds
         self.world_width, self.world_height = self.track.get_world_size()
 
-        # Reset lap count on track change
+        # Reset lap count and timing on track change
         self.lap_count = 0
+        self.lap_start_time = time.time()
+        self.current_lap_time = 0.0
+        self.last_lap_time = None
+
+        # Load best time for this track
+        if hasattr(self, 'db'):
+            self._load_best_time()
 
         # Spawn NPC cars
         self._spawn_npcs()
+
+    def _load_best_time(self):
+        """Load personal best lap time for current track."""
+        track_name = "Oval" if self.track_index == 0 else "Figure-8"
+        self.best_lap_time = self.db.get_best_lap_time(self.player_id, track_name)
 
     def _spawn_npcs(self):
         """Spawn NPC cars at staggered positions."""
@@ -119,6 +146,25 @@ class Game:
                     self.switch_track()
                 elif event.key == pygame.K_n:
                     self.cycle_npc_count()
+                elif event.key == pygame.K_r:
+                    self.reset_race()
+
+    def reset_race(self):
+        """Reset the race, saving results if laps completed."""
+        if self.lap_count > 0:
+            self._save_race()
+        self._load_track()
+
+    def _save_race(self):
+        """Save current race to database."""
+        track_name = "Oval" if self.track_index == 0 else "Figure-8"
+        self.db.save_race(
+            player_id=self.player_id,
+            track=track_name,
+            laps=self.lap_count,
+            best_lap_time=self.best_lap_time,
+            total_time=None
+        )
 
     def cycle_npc_count(self):
         """Cycle NPC count from 0-5."""
@@ -173,11 +219,22 @@ class Game:
         # Calculate race positions
         self._update_positions()
 
+        # Update current lap time
+        self.current_lap_time = time.time() - self.lap_start_time
+
         # Check for lap completion
         new_x, new_y = self.player_car.get_position()
         prev_x = self.player_car.get_prev_x()
         if self.track.check_finish_line(prev_x, new_x, new_y):
             self.lap_count += 1
+            self.last_lap_time = self.current_lap_time
+
+            # Update best lap time
+            if self.best_lap_time is None or self.current_lap_time < self.best_lap_time:
+                self.best_lap_time = self.current_lap_time
+
+            # Reset lap timer
+            self.lap_start_time = time.time()
 
         # Update camera to follow player
         self.camera.update(new_x, new_y, self.world_width, self.world_height)
@@ -260,18 +317,33 @@ class Game:
         pos_text = self.font.render(f"Position: {self.player_position}/{total_cars}", True, WHITE)
         self.screen.blit(pos_text, (20, 60))
 
-        # Track indicator
+        # Current lap time
+        time_text = self.font.render(f"Time: {self.current_lap_time:.2f}s", True, WHITE)
+        self.screen.blit(time_text, (20, 100))
+
+        # Best lap time
+        if self.best_lap_time:
+            best_text = self.font.render(f"Best: {self.best_lap_time:.2f}s", True, GREEN)
+        else:
+            best_text = self.font.render("Best: --", True, GRAY)
+        self.screen.blit(best_text, (20, 140))
+
+        # Last lap time
+        if self.last_lap_time:
+            last_text = self.font.render(f"Last: {self.last_lap_time:.2f}s", True, WHITE)
+            self.screen.blit(last_text, (20, 180))
+
+        # Right side info
         track_name = "Oval" if self.track_index == 0 else "Figure-8"
         track_text = self.font.render(f"Track: {track_name}", True, WHITE)
-        self.screen.blit(track_text, (20, 100))
+        self.screen.blit(track_text, (SCREEN_WIDTH - 250, 20))
 
-        # NPC count
         npc_text = self.font.render(f"NPCs: {self.npc_count}", True, WHITE)
-        self.screen.blit(npc_text, (20, 140))
+        self.screen.blit(npc_text, (SCREEN_WIDTH - 250, 60))
 
         # Controls hint
         hint_font = pygame.font.Font(None, 24)
-        hint_text = hint_font.render("T: Track | N: NPCs | WASD/Arrows: Drive | ESC: Quit", True, GRAY)
+        hint_text = hint_font.render("T: Track | N: NPCs | R: Reset | WASD: Drive | ESC: Quit", True, GRAY)
         self.screen.blit(hint_text, (20, SCREEN_HEIGHT - 30))
 
     def run(self):
@@ -282,6 +354,11 @@ class Game:
             self.render()
             self.clock.tick(FPS)
 
+        # Save race on exit if laps completed
+        if self.lap_count > 0:
+            self._save_race()
+
+        self.db.close()
         pygame.quit()
         sys.exit()
 
