@@ -171,3 +171,33 @@ class Car:
     def get_prev_x(self) -> float:
         """Return the car's previous x position."""
         return self.prev_x
+
+    def apply_collision(self, push_x: float, push_y: float):
+        """Apply collision response - push car and reduce velocity."""
+        self.x += push_x
+        self.y += push_y
+        self.velocity *= 0.5
+
+    def get_progress(self, waypoints) -> float:
+        """
+        Get race progress based on waypoints.
+        For player car, find nearest waypoint and calculate progress.
+        """
+        if not waypoints:
+            return 0.0
+
+        # Find the nearest waypoint ahead
+        min_dist = float('inf')
+        nearest_wp = 0
+
+        for i, (wx, wy) in enumerate(waypoints):
+            dist = math.sqrt((wx - self.x) ** 2 + (wy - self.y) ** 2)
+            if dist < min_dist:
+                min_dist = dist
+                nearest_wp = i
+
+        # Progress = waypoint index + fraction based on distance
+        max_dist = 200
+        fraction = 1.0 - min(min_dist / max_dist, 1.0)
+
+        return nearest_wp + fraction

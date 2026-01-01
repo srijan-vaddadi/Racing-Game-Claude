@@ -43,6 +43,9 @@ class Track:
         self.finish_line_y1 = 0
         self.finish_line_y2 = 0
 
+        # Waypoints for AI navigation
+        self.waypoints: List[Tuple[float, float]] = []
+
         # Load tile images
         self._load_tiles(assets_path)
 
@@ -99,6 +102,23 @@ class Track:
         self.finish_line_y1 = 8 * self.tile_size
         self.finish_line_y2 = 9 * self.tile_size
 
+        # Waypoints for AI (clockwise around the oval)
+        ts = self.tile_size
+        self.waypoints = [
+            (5 * ts, 8.5 * ts),   # Bottom straight (left)
+            (3 * ts, 8.5 * ts),   # Approaching bottom-left corner
+            (2.5 * ts, 7.5 * ts), # Bottom-left corner
+            (2.5 * ts, 5 * ts),   # Left straight (middle)
+            (2.5 * ts, 2.5 * ts), # Top-left corner
+            (3.5 * ts, 1.5 * ts), # Top straight (left)
+            (6 * ts, 1.5 * ts),   # Top straight (middle)
+            (8.5 * ts, 1.5 * ts), # Top straight (right)
+            (9.5 * ts, 2.5 * ts), # Top-right corner
+            (9.5 * ts, 5 * ts),   # Right straight (middle)
+            (9.5 * ts, 7.5 * ts), # Bottom-right corner
+            (8.5 * ts, 8.5 * ts), # Bottom straight (right)
+        ]
+
     def _create_figure8_track(self):
         """Create a figure-8 shaped track."""
         G = GRASS
@@ -129,6 +149,33 @@ class Track:
         self.finish_line_x = 3 * self.tile_size
         self.finish_line_y1 = 8 * self.tile_size
         self.finish_line_y2 = 9 * self.tile_size
+
+        # Waypoints for AI (figure-8 path)
+        ts = self.tile_size
+        self.waypoints = [
+            (1.5 * ts, 8.5 * ts),   # Bottom-left corner
+            (1.5 * ts, 5 * ts),     # Left side going up
+            (1.5 * ts, 2 * ts),     # Top-left area
+            (2.5 * ts, 1.5 * ts),   # Top-left corner
+            (4 * ts, 1.5 * ts),     # Top straight left
+            (4.5 * ts, 2.5 * ts),   # Descending to middle
+            (5.5 * ts, 3.5 * ts),   # Middle crossing
+            (7 * ts, 3.5 * ts),     # Middle crossing right
+            (9 * ts, 3.5 * ts),     # Approaching right loop
+            (9.5 * ts, 2.5 * ts),   # Top-right corner
+            (11 * ts, 1.5 * ts),    # Top right straight
+            (12.5 * ts, 2 * ts),    # Right side top
+            (12.5 * ts, 5 * ts),    # Right side middle
+            (12.5 * ts, 8 * ts),    # Right side bottom
+            (11 * ts, 8.5 * ts),    # Bottom-right corner
+            (9.5 * ts, 8.5 * ts),   # Bottom right
+            (9.5 * ts, 7 * ts),     # Going up to middle
+            (8 * ts, 6.5 * ts),     # Middle crossing back
+            (6 * ts, 6.5 * ts),     # Middle crossing left
+            (4.5 * ts, 7 * ts),     # Descending left
+            (4.5 * ts, 8.5 * ts),   # Bottom left area
+            (3 * ts, 8.5 * ts),     # Approaching start
+        ]
 
     def get_tile_at(self, x: float, y: float) -> int:
         """
@@ -165,6 +212,26 @@ class Track:
             start_x = 2 * self.tile_size + self.tile_size // 2
             start_y = 8 * self.tile_size + self.tile_size // 2
         return (start_x, start_y)
+
+    def get_npc_start_positions(self, count: int) -> List[Tuple[float, float, int]]:
+        """
+        Get staggered start positions for NPC cars.
+
+        Returns list of (x, y, waypoint_index) tuples.
+        """
+        if not self.waypoints or count == 0:
+            return []
+
+        positions = []
+        # Spread NPCs around the track at different waypoints
+        waypoint_spacing = len(self.waypoints) // (count + 1)
+
+        for i in range(count):
+            wp_index = ((i + 1) * waypoint_spacing) % len(self.waypoints)
+            x, y = self.waypoints[wp_index]
+            positions.append((x, y, wp_index))
+
+        return positions
 
     def get_start_angle(self) -> float:
         """Get the starting angle for a car."""

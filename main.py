@@ -9,6 +9,8 @@ import os
 from src.car import Car
 from src.track import Track
 from src.camera import Camera
+from src.npc_car import NPCCar
+import math
 
 
 # Constants
@@ -43,6 +45,11 @@ class Game:
         # Track selection
         self.track_index = 0
 
+        # NPC settings
+        self.npc_count = 3
+        self.npc_colors = ["blue", "green", "yellow", "black", "blue"]
+        self.npc_cars = []
+
         # Initialize game objects
         self._load_track()
 
@@ -51,6 +58,9 @@ class Game:
 
         # Lap counting
         self.lap_count = 0
+
+        # Race position
+        self.player_position = 1
 
     def _load_track(self):
         """Load or reload the track and reset car position."""
@@ -76,6 +86,22 @@ class Game:
         # Reset lap count on track change
         self.lap_count = 0
 
+        # Spawn NPC cars
+        self._spawn_npcs()
+
+    def _spawn_npcs(self):
+        """Spawn NPC cars at staggered positions."""
+        self.npc_cars = []
+        npc_positions = self.track.get_npc_start_positions(self.npc_count)
+
+        for i, (x, y, wp_index) in enumerate(npc_positions):
+            color = self.npc_colors[i % len(self.npc_colors)]
+            image_path = os.path.join(self.assets_path, "cars", f"car_{color}_1.png")
+            difficulty = 0.6 + (i * 0.1)  # Vary difficulty slightly
+            npc = NPCCar(x, y, image_path, difficulty)
+            npc.current_waypoint = wp_index
+            self.npc_cars.append(npc)
+
     def switch_track(self):
         """Switch to the next track."""
         self.track_index = (self.track_index + 1) % 2  # Toggle between 0 and 1
@@ -91,6 +117,13 @@ class Game:
                     self.running = False
                 elif event.key == pygame.K_t:
                     self.switch_track()
+                elif event.key == pygame.K_n:
+                    self.cycle_npc_count()
+
+    def cycle_npc_count(self):
+        """Cycle NPC count from 0-5."""
+        self.npc_count = (self.npc_count + 1) % 6
+        self._spawn_npcs()
 
     def handle_input(self):
         """Handle continuous keyboard input for car controls."""
@@ -128,6 +161,18 @@ class Game:
         # Update player car with surface type and world bounds
         self.player_car.update(on_road, self.world_width, self.world_height)
 
+        # Update NPC cars
+        for npc in self.npc_cars:
+            npc_x, npc_y = npc.get_position()
+            npc_on_road = self.track.is_on_road(npc_x, npc_y)
+            npc.update(self.track.waypoints, npc_on_road)
+
+        # Handle collisions between all cars
+        self._handle_collisions()
+
+        # Calculate race positions
+        self._update_positions()
+
         # Check for lap completion
         new_x, new_y = self.player_car.get_position()
         prev_x = self.player_car.get_prev_x()
@@ -136,6 +181,49 @@ class Game:
 
         # Update camera to follow player
         self.camera.update(new_x, new_y, self.world_width, self.world_height)
+
+    def _handle_collisions(self):
+        """Handle collisions between all cars."""
+        all_cars = [self.player_car] + self.npc_cars
+        collision_radius = 25
+
+        for i in range(len(all_cars)):
+            for j in range(i + 1, len(all_cars)):
+                car1 = all_cars[i]
+                car2 = all_cars[j]
+
+                x1, y1 = car1.get_position()
+                x2, y2 = car2.get_position()
+
+                dx = x2 - x1
+                dy = y2 - y1
+                dist = math.sqrt(dx * dx + dy * dy)
+
+                if dist < collision_radius * 2 and dist > 0:
+                    # Calculate push direction
+                    overlap = (collision_radius * 2 - dist) / 2
+                    push_x = (dx / dist) * overlap
+                    push_y = (dy / dist) * overlap
+
+                    # Push cars apart
+                    car1.apply_collision(-push_x, -push_y)
+                    car2.apply_collision(push_x, push_y)
+
+    def _update_positions(self):
+        """Calculate race positions based on progress."""
+        waypoints = self.track.waypoints
+
+        # Get player progress (use laps + waypoint progress)
+        player_progress = self.lap_count * len(waypoints) + self.player_car.get_progress(waypoints)
+
+        # Count how many NPCs are ahead
+        position = 1
+        for npc in self.npc_cars:
+            npc_progress = npc.get_progress(waypoints)
+            if npc_progress > player_progress:
+                position += 1
+
+        self.player_position = position
 
     def render(self):
         """Render the game."""
@@ -147,6 +235,10 @@ class Game:
 
         # Draw track
         self.track.draw(self.screen, camera_offset)
+
+        # Draw NPC cars
+        for npc in self.npc_cars:
+            npc.draw(self.screen, camera_offset)
 
         # Draw player car
         self.player_car.draw(self.screen, camera_offset)
@@ -163,14 +255,23 @@ class Game:
         lap_text = self.font.render(f"Lap: {self.lap_count}", True, WHITE)
         self.screen.blit(lap_text, (20, 20))
 
+        # Position
+        total_cars = 1 + len(self.npc_cars)
+        pos_text = self.font.render(f"Position: {self.player_position}/{total_cars}", True, WHITE)
+        self.screen.blit(pos_text, (20, 60))
+
         # Track indicator
         track_name = "Oval" if self.track_index == 0 else "Figure-8"
         track_text = self.font.render(f"Track: {track_name}", True, WHITE)
-        self.screen.blit(track_text, (20, 60))
+        self.screen.blit(track_text, (20, 100))
+
+        # NPC count
+        npc_text = self.font.render(f"NPCs: {self.npc_count}", True, WHITE)
+        self.screen.blit(npc_text, (20, 140))
 
         # Controls hint
         hint_font = pygame.font.Font(None, 24)
-        hint_text = hint_font.render("T: Switch Track | WASD/Arrows: Drive | ESC: Quit", True, GRAY)
+        hint_text = hint_font.render("T: Track | N: NPCs | WASD/Arrows: Drive | ESC: Quit", True, GRAY)
         self.screen.blit(hint_text, (20, SCREEN_HEIGHT - 30))
 
     def run(self):
