@@ -38,3 +38,7 @@ Thumbs.db
 
 # Project specific
 .claude/
+kenney_racing-pack/
+screenshots/
+iteration_log.txt
+*.pdf
