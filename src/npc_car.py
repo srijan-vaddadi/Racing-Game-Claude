@@ -10,7 +10,7 @@ from typing import Tuple, List
 class NPCCar:
     """An AI-controlled car that follows waypoints."""
 
-    def __init__(self, x: float, y: float, image_path: str, difficulty: float = 0.7):
+    def __init__(self, x: float, y: float, image_path: str, difficulty: float = 0.7, stats: dict = None):
         """
         Initialize the NPC car.
 
@@ -19,6 +19,7 @@ class NPCCar:
             y: Initial y position
             image_path: Path to the car sprite image
             difficulty: Speed multiplier (0.5 = easy, 1.0 = hard)
+            stats: Optional dict with car stats
         """
         self.x = x
         self.y = y
@@ -27,11 +28,19 @@ class NPCCar:
         self.velocity = 0.0
         self.difficulty_multiplier = difficulty
 
+        # Apply stats or use defaults
+        if stats:
+            base_velocity = stats.get("max_velocity", 6.0)
+            self.acceleration = stats.get("acceleration", 0.12)
+            self.rotation_speed = stats.get("handling", 2.5)
+        else:
+            base_velocity = 6.0
+            self.acceleration = 0.12
+            self.rotation_speed = 2.5
+
         # Physics constants (scaled by difficulty)
-        self.max_velocity = 6.0 * difficulty
-        self.acceleration = 0.12
+        self.max_velocity = base_velocity * difficulty
         self.friction = 0.02
-        self.rotation_speed = 2.5
 
         # Waypoint tracking
         self.current_waypoint = 0

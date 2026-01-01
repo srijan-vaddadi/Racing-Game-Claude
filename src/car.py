@@ -10,7 +10,7 @@ from typing import Tuple
 class Car:
     """A car with arcade-style physics."""
 
-    def __init__(self, x: float, y: float, image_path: str):
+    def __init__(self, x: float, y: float, image_path: str, stats: dict = None):
         """
         Initialize the car.
 
@@ -18,6 +18,7 @@ class Car:
             x: Initial x position
             y: Initial y position
             image_path: Path to the car sprite image
+            stats: Optional dict with max_velocity, acceleration, handling, durability
         """
         self.x = x
         self.y = y
@@ -25,13 +26,22 @@ class Car:
         self.angle = 0  # Degrees, 0 = facing up
         self.velocity = 0.0
 
+        # Apply stats or use defaults
+        if stats:
+            self.max_velocity = stats.get("max_velocity", 8.0)
+            self.acceleration = stats.get("acceleration", 0.15)
+            self.rotation_speed = stats.get("handling", 3.0)
+            self.durability = stats.get("durability", 1.0)
+        else:
+            self.max_velocity = 8.0
+            self.acceleration = 0.15
+            self.rotation_speed = 3.0
+            self.durability = 1.0
+
         # Physics constants
-        self.max_velocity = 8.0
-        self.acceleration = 0.15
         self.brake_strength = 0.3
         self.friction = 0.02
         self.grass_friction = 0.08  # Higher friction on grass
-        self.rotation_speed = 3.0
         self.min_velocity_for_rotation = 0.5
 
         # Load and store the original image

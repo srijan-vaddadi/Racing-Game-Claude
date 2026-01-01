@@ -11,8 +11,11 @@ from src.track import Track
 from src.camera import Camera
 from src.npc_car import NPCCar
 from src.data import Database
+from src.ui import Menu, GameState
+from src.car_stats import get_car_stats, get_car_image_name, get_random_car, CAR_COLORS
 import math
 import time
+import random
 
 
 # Constants
@@ -49,8 +52,11 @@ class Game:
 
         # NPC settings
         self.npc_count = 3
-        self.npc_colors = ["blue", "green", "yellow", "black", "blue"]
         self.npc_cars = []
+
+        # Car selection (must be set before _load_track)
+        self.selected_car_type = 1
+        self.selected_car_color = "red"
 
         # Initialize game objects
         self._load_track()
@@ -77,6 +83,10 @@ class Game:
         self.player_id = self.db.get_or_create_player(self.player_name)
         self._load_best_time()
 
+        # Menu system
+        self.menu = Menu(SCREEN_WIDTH, SCREEN_HEIGHT)
+        self.game_state = GameState.MENU
+
     def _load_track(self):
         """Load or reload the track and reset car position."""
         self.track = Track(self.assets_path, self.track_index)
@@ -85,10 +95,17 @@ class Game:
         start_x, start_y = self.track.get_start_position()
         start_angle = self.track.get_start_angle()
 
+        # Get car image and stats
+        car_image = get_car_image_name(self.selected_car_color, self.selected_car_type)
+        self.car_image_path = os.path.join(self.assets_path, car_image)
+        car_stats = get_car_stats(self.selected_car_type)
+
         if hasattr(self, 'player_car'):
-            self.player_car.reset(start_x, start_y, start_angle)
+            # Recreate car with new stats
+            self.player_car = Car(start_x, start_y, self.car_image_path, car_stats)
+            self.player_car.angle = start_angle
         else:
-            self.player_car = Car(start_x, start_y, self.car_image_path)
+            self.player_car = Car(start_x, start_y, self.car_image_path, car_stats)
             self.player_car.angle = start_angle
 
         # Initialize camera
@@ -117,15 +134,18 @@ class Game:
         self.best_lap_time = self.db.get_best_lap_time(self.player_id, track_name)
 
     def _spawn_npcs(self):
-        """Spawn NPC cars at staggered positions."""
+        """Spawn NPC cars at staggered positions with random types."""
         self.npc_cars = []
         npc_positions = self.track.get_npc_start_positions(self.npc_count)
 
         for i, (x, y, wp_index) in enumerate(npc_positions):
-            color = self.npc_colors[i % len(self.npc_colors)]
-            image_path = os.path.join(self.assets_path, "cars", f"car_{color}_1.png")
-            difficulty = 0.6 + (i * 0.1)  # Vary difficulty slightly
-            npc = NPCCar(x, y, image_path, difficulty)
+            # Random car type and color
+            color, car_type = get_random_car()
+            image_path = os.path.join(self.assets_path, get_car_image_name(color, car_type))
+            car_stats = get_car_stats(car_type)
+
+            difficulty = 0.6 + (i * 0.08)  # Vary difficulty slightly
+            npc = NPCCar(x, y, image_path, difficulty, car_stats)
             npc.current_waypoint = wp_index
             self.npc_cars.append(npc)
 
@@ -139,15 +159,66 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            elif event.type == pygame.KEYDOWN:
+                return
+
+            # Handle menu states
+            if self.game_state != GameState.PLAYING:
+                if event.type == pygame.KEYDOWN:
+                    new_state, actions = self.menu.handle_input(event, self.game_state)
+                    self._handle_menu_actions(new_state, actions)
+                return
+
+            # Playing state - handle game input
+            if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    self.game_state = GameState.PAUSED
+                    self.menu.selected_index = 0
                 elif event.key == pygame.K_t:
                     self.switch_track()
                 elif event.key == pygame.K_n:
                     self.cycle_npc_count()
                 elif event.key == pygame.K_r:
                     self.reset_race()
+
+    def _handle_menu_actions(self, new_state: GameState, actions: dict):
+        """Handle actions from menu system."""
+        if actions.get("quit"):
+            self.running = False
+            return
+
+        if actions.get("track_changed") is not None:
+            self.track_index = actions["track_changed"]
+            self._load_track()
+
+        if actions.get("car_changed"):
+            car_info = actions["car_changed"]
+            self.selected_car_type = car_info["type"]
+            self.selected_car_color = car_info["color"]
+            self._update_player_car()
+
+        if actions.get("start_race"):
+            self._load_track()
+
+        if actions.get("restart"):
+            self.reset_race()
+
+        if actions.get("save_race") and self.lap_count > 0:
+            self._save_race()
+            self.lap_count = 0
+
+        self.game_state = new_state
+
+    def _update_player_car(self):
+        """Update player car with selected type and color."""
+        car_image = get_car_image_name(self.selected_car_color, self.selected_car_type)
+        self.car_image_path = os.path.join(self.assets_path, car_image)
+        car_stats = get_car_stats(self.selected_car_type)
+
+        if hasattr(self, 'player_car'):
+            start_x, start_y = self.track.get_start_position()
+            start_angle = self.track.get_start_angle()
+            self.player_car = Car(start_x, start_y, self.car_image_path, car_stats)
+            self.player_car.angle = start_angle
 
     def reset_race(self):
         """Reset the race, saving results if laps completed."""
@@ -197,6 +268,10 @@ class Game:
 
     def update(self):
         """Update game state."""
+        # Only update game when playing
+        if self.game_state != GameState.PLAYING:
+            return
+
         # Handle continuous input
         self.handle_input()
 
@@ -284,6 +359,13 @@ class Game:
 
     def render(self):
         """Render the game."""
+        # Draw menu screens
+        if self.game_state in (GameState.MENU, GameState.TRACK_SELECT,
+                               GameState.CAR_TYPE_SELECT, GameState.CAR_COLOR_SELECT):
+            self.menu.draw(self.screen, self.game_state)
+            pygame.display.flip()
+            return
+
         # Clear screen
         self.screen.fill(BLACK)
 
@@ -302,6 +384,10 @@ class Game:
 
         # Draw UI
         self._draw_ui()
+
+        # Draw pause overlay if paused
+        if self.game_state == GameState.PAUSED:
+            self.menu.draw(self.screen, self.game_state)
 
         # Update display
         pygame.display.flip()
