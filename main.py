@@ -38,21 +38,48 @@ class Game:
         # Get the base path for assets
         self.base_path = os.path.dirname(os.path.abspath(__file__))
         self.assets_path = os.path.join(self.base_path, "assets")
+        self.car_image_path = os.path.join(self.assets_path, "cars", "car_red_1.png")
+
+        # Track selection
+        self.track_index = 0
 
         # Initialize game objects
-        self.track = Track(self.assets_path)
+        self._load_track()
 
-        # Get starting position and create player car
+        # Initialize font for UI
+        self.font = pygame.font.Font(None, 48)
+
+        # Lap counting
+        self.lap_count = 0
+
+    def _load_track(self):
+        """Load or reload the track and reset car position."""
+        self.track = Track(self.assets_path, self.track_index)
+
+        # Get starting position and create/reset player car
         start_x, start_y = self.track.get_start_position()
-        car_image_path = os.path.join(self.assets_path, "cars", "car_red_1.png")
-        self.player_car = Car(start_x, start_y, car_image_path)
-        self.player_car.angle = 90  # Face right (along the bottom straight)
+        start_angle = self.track.get_start_angle()
+
+        if hasattr(self, 'player_car'):
+            self.player_car.reset(start_x, start_y, start_angle)
+        else:
+            self.player_car = Car(start_x, start_y, self.car_image_path)
+            self.player_car.angle = start_angle
 
         # Initialize camera
-        self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
+        if not hasattr(self, 'camera'):
+            self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT)
 
         # Get world size for camera bounds
         self.world_width, self.world_height = self.track.get_world_size()
+
+        # Reset lap count on track change
+        self.lap_count = 0
+
+    def switch_track(self):
+        """Switch to the next track."""
+        self.track_index = (self.track_index + 1) % 2  # Toggle between 0 and 1
+        self._load_track()
 
     def handle_events(self):
         """Handle pygame events."""
@@ -62,6 +89,8 @@ class Game:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+                elif event.key == pygame.K_t:
+                    self.switch_track()
 
     def handle_input(self):
         """Handle continuous keyboard input for car controls."""
@@ -92,12 +121,21 @@ class Game:
         # Handle continuous input
         self.handle_input()
 
-        # Update player car
-        self.player_car.update()
+        # Check if car is on road
+        player_x, player_y = self.player_car.get_position()
+        on_road = self.track.is_on_road(player_x, player_y)
+
+        # Update player car with surface type and world bounds
+        self.player_car.update(on_road, self.world_width, self.world_height)
+
+        # Check for lap completion
+        new_x, new_y = self.player_car.get_position()
+        prev_x = self.player_car.get_prev_x()
+        if self.track.check_finish_line(prev_x, new_x, new_y):
+            self.lap_count += 1
 
         # Update camera to follow player
-        player_x, player_y = self.player_car.get_position()
-        self.camera.update(player_x, player_y, self.world_width, self.world_height)
+        self.camera.update(new_x, new_y, self.world_width, self.world_height)
 
     def render(self):
         """Render the game."""
@@ -113,8 +151,27 @@ class Game:
         # Draw player car
         self.player_car.draw(self.screen, camera_offset)
 
+        # Draw UI
+        self._draw_ui()
+
         # Update display
         pygame.display.flip()
+
+    def _draw_ui(self):
+        """Draw the user interface elements."""
+        # Lap counter
+        lap_text = self.font.render(f"Lap: {self.lap_count}", True, WHITE)
+        self.screen.blit(lap_text, (20, 20))
+
+        # Track indicator
+        track_name = "Oval" if self.track_index == 0 else "Figure-8"
+        track_text = self.font.render(f"Track: {track_name}", True, WHITE)
+        self.screen.blit(track_text, (20, 60))
+
+        # Controls hint
+        hint_font = pygame.font.Font(None, 24)
+        hint_text = hint_font.render("T: Switch Track | WASD/Arrows: Drive | ESC: Quit", True, GRAY)
+        self.screen.blit(hint_text, (20, SCREEN_HEIGHT - 30))
 
     def run(self):
         """Main game loop."""
